@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Subjects - Admin</title>
+    <link rel="stylesheet" href="../css/main.css">
+    <style>
+        .admin-nav { background: #1a237e; }
+        .subject-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .subject-table th, .subject-table td { padding: 15px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+        .subject-table th { background: #f5f5f5; font-weight: 600; }
+        .badge { padding: 5px 10px; border-radius: 15px; font-size: 12px; }
+        .badge-active { background: #e8f5e9; color: #2e7d32; }
+        .badge-inactive { background: #ffebee; color: #d32f2f; }
+        .modal-form { display: flex; flex-direction: column; gap: 15px; }
+        .checkbox-group { display: flex; gap: 15px; flex-wrap: wrap; }
+        .checkbox-item { display: flex; align-items: center; gap: 5px; }
+    </style>
+</head>
+<body>
+    <nav class="nav admin-nav">
+        <div class="nav-brand">🔐 Manage Subjects</div>
+        <div class="nav-links">
+            <a href="dashboard.html" style="color: white;">Dashboard</a>
+            <a href="#" onclick="logout()" style="color: white;">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>All Subjects</h2>
+                <button class="btn" onclick="openModal()">+ Add Subject</button>
+            </div>
+            
+            <div id="subjectsList">
+                <div class="loading" style="display: block;">
+                    <div class="spinner"></div>
+                    <p>Loading subjects...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div class="modal" id="subjectModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3 id="modalTitle">Add Subject</h3>
+            <form id="subjectForm" class="modal-form">
+                <div class="form-group">
+                    <label>Subject Name</label>
+                    <input type="text" id="subName" required>
+                </div>
+                <div class="form-group">
+                    <label>Subject Code</label>
+                    <input type="text" id="subCode" placeholder="ENG, MTH, etc." required>
+                </div>
+                <div class="form-group">
+                    <label>Available For</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="forJamb" value="jamb" checked> JAMB
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="forWaec" value="waec" checked> WAEC
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="forNeco" value="neco" checked> NECO
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="subActive" checked> Active
+                    </label>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn">Save Subject</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from '../js/firebase-config.js';
+        import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        let subjects = [];
+        let editingId = null;
+
+        onAuthStateChanged(auth, (user) => {
+            if (!user) window.location.href = 'login.html';
+            else loadSubjects();
+        });
+
+        async function loadSubjects() {
+            const snapshot = await getDocs(collection(db, 'subjects'));
+            subjects = [];
+            snapshot.forEach(doc => subjects.push({ id: doc.id, ...doc.data() }));
+            displaySubjects();
+        }
+
+        function displaySubjects() {
+            const container = document.getElementById('subjectsList');
+            
+            if (subjects.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #666;">No subjects found</p>';
+                return;
+            }
+
+            let html = `
+                <table class="subject-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>Exams</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            subjects.forEach(sub => {
+                const examTypes = sub.examTypes ? sub.examTypes.join(', ').toUpperCase() : 'N/A';
+                html += `
+                    <tr>
+                        <td><strong>${sub.code}</strong></td>
+                        <td>${sub.name}</td>
+                        <td>${examTypes}</td>
+                        <td><span class="badge ${sub.isActive ? 'badge-active' : 'badge-inactive'}">
+                            ${sub.isActive ? 'Active' : 'Inactive'}
+                        </span></td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 5px 15px; font-size: 12px;" 
+                                onclick="editSubject('${sub.id}')">Edit</button>
+                            <button class="btn btn-danger" style="padding: 5px 15px; font-size: 12px;" 
+                                onclick="deleteSubject('${sub.id}')">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        window.openModal = function(id = null) {
+            editingId = id;
+            document.getElementById('modalTitle').textContent = id ? 'Edit Subject' : 'Add Subject';
+            
+            if (id) {
+                const sub = subjects.find(s => s.id === id);
+                document.getElementById('subName').value = sub.name;
+                document.getElementById('subCode').value = sub.code;
+                document.getElementById('subActive').checked = sub.isActive;
+                document.getElementById('forJamb').checked = sub.examTypes?.includes('jamb');
+                document.getElementById('forWaec').checked = sub.examTypes?.includes('waec');
+                document.getElementById('forNeco').checked = sub.examTypes?.includes('neco');
+            } else {
+                document.getElementById('subjectForm').reset();
+            }
+            
+            document.getElementById('subjectModal').classList.add('active');
+        };
+
+        window.closeModal = function() {
+            document.getElementById('subjectModal').classList.remove('active');
+            editingId = null;
+        };
+
+        document.getElementById('subjectForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const examTypes = [];
+            if (document.getElementById('forJamb').checked) examTypes.push('jamb');
+            if (document.getElementById('forWaec').checked) examTypes.push('waec');
+            if (document.getElementById('forNeco').checked) examTypes.push('neco');
+
+            const data = {
+                name: document.getElementById('subName').value,
+                code: document.getElementById('subCode').value.toUpperCase(),
+                examTypes: examTypes,
+                isActive: document.getElementById('subActive').checked
+            };
+
+            try {
+                if (editingId) {
+                    await updateDoc(doc(db, 'subjects', editingId), data);
+                } else {
+                    await addDoc(collection(db, 'subjects'), data);
+                }
+                closeModal();
+                loadSubjects();
+            } catch (error) {
+                alert('Error saving subject: ' + error.message);
+            }
+        });
+
+        window.editSubject = function(id) {
+            openModal(id);
+        };
+
+        window.deleteSubject = async function(id) {
+            if (!confirm('Are you sure? This will also delete all questions for this subject!')) return;
+            
+            try {
+                await deleteDoc(doc(db, 'subjects', id));
+                loadSubjects();
+            } catch (error) {
+                alert('Error deleting subject: ' + error.message);
+            }
+        };
+
+        window.logout = async function() {
+            await signOut(auth);
+            window.location.href = 'login.html';
+        };
+    </script>
+</body>
+</html>
+
