@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Questions - Admin</title>
+    <link rel="stylesheet" href="../css/main.css">
+    <style>
+        .admin-nav { background: #1a237e; }
+        .filter-bar { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
+        .question-item { background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 15px; }
+        .question-header { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .options-list { margin: 10px 0; padding-left: 20px; }
+        .correct-answer { color: #2e7d32; font-weight: bold; }
+        .pagination { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <nav class="nav admin-nav">
+        <div class="nav-brand">🔐 Manage Questions</div>
+        <div class="nav-links">
+            <a href="dashboard.html" style="color: white;">Dashboard</a>
+            <a href="#" onclick="logout()" style="color: white;">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                <h2>Questions Bank</h2>
+                <button class="btn" onclick="openModal()">+ Add Question</button>
+            </div>
+
+            <div class="filter-bar">
+                <select id="filterSubject" class="form-group" style="width: 200px; margin: 0;" onchange="loadQuestions()">
+                    <option value="">All Subjects</option>
+                </select>
+                <select id="filterExam" class="form-group" style="width: 150px; margin: 0;" onchange="loadQuestions()">
+                    <option value="">All Exams</option>
+                    <option value="jamb">JAMB</option>
+                    <option value="waec">WAEC</option>
+                    <option value="neco">NECO</option>
+                </select>
+                <input type="text" id="searchText" placeholder="Search questions..." style="width: 250px;" onkeyup="if(event.key==='Enter')loadQuestions()">
+            </div>
+
+            <div id="questionsList">
+                <div class="loading" style="display: block;">
+                    <div class="spinner"></div>
+                    <p>Loading questions...</p>
+                </div>
+            </div>
+
+            <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div class="modal" id="questionModal">
+        <div class="modal-content" style="max-width: 600px; max-height: 90vh; overflow-y: auto;">
+            <h3 id="modalTitle">Add Question</h3>
+            <form id="questionForm">
+                <div class="form-group">
+                    <label>Subject</label>
+                    <select id="qSubject" required>
+                        <option value="">Select Subject</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Question Text</label>
+                    <textarea id="qText" rows="3" required style="width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Option A</label>
+                    <input type="text" id="optA" required>
+                </div>
+                <div class="form-group">
+                    <label>Option B</label>
+                    <input type="text" id="optB" required>
+                </div>
+                <div class="form-group">
+                    <label>Option C</label>
+                    <input type="text" id="optC" required>
+                </div>
+                <div class="form-group">
+                    <label>Option D</label>
+                    <input type="text" id="optD" required>
+                </div>
+                <div class="form-group">
+                    <label>Correct Answer</label>
+                    <select id="qCorrect" required>
+                        <option value="A">Option A</option>
+                        <option value="B">Option B</option>
+                        <option value="C">Option C</option>
+                        <option value="D">Option D</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Explanation (Optional)</label>
+                    <textarea id="qExplanation" rows="2" style="width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px;"></textarea>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn">Save Question</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from '../js/firebase-config.js';
+        import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        let subjects = [];
+        let questions = [];
+        let editingId = null;
+        let currentPage = 1;
+        const perPage = 10;
+
+        onAuthStateChanged(auth, (user) => {
+            if (!user) window.location.href = 'login.html';
+            else init();
+        });
+
+        async function init() {
+            await loadSubjects();
+            loadQuestions();
+        }
+
+        async function loadSubjects() {
+            const snapshot = await getDocs(collection(db, 'subjects'));
+            subjects = [];
+            const subjectSelect = document.getElementById('qSubject');
+            const filterSelect = document.getElementById('filterSubject');
+            
+            snapshot.forEach(doc => {
+                const sub = { id: doc.id, ...doc.data() };
+                subjects.push(sub);
+                
+                const option = `<option value="${doc.id}">${sub.name}</option>`;
+                subjectSelect.innerHTML += option;
+                filterSelect.innerHTML += option;
+            });
+        }
+
+        async function loadQuestions() {
+            const subjectFilter = document.getElementById('filterSubject').value;
+            const examFilter = document.getElementById('filterExam').value;
+            
+            let q = query(collection(db, 'questions'));
+            
+            if (subjectFilter) {
+                q = query(q, where('subjectId', '==', subjectFilter));
+            }
+
+            const snapshot = await getDocs(q);
+            questions = [];
+            snapshot.forEach(doc => questions.push({ id: doc.id, ...doc.data() }));
+            
+            // Client-side filter for exam type
+            if (examFilter) {
+                questions = questions.filter(q => q.examType === examFilter);
+            }
+            
+            displayQuestions();
+        }
+
+        function displayQuestions() {
+            const container = document.getElementById('questionsList');
+            const start = (currentPage - 1) * perPage;
+            const pageQuestions = questions.slice(start, start + perPage);
+            
+            if (pageQuestions.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #666;">No questions found</p>';
+                return;
+            }
+
+            container.innerHTML = pageQuestions.map(q => {
+                const subject = subjects.find(s => s.id === q.subjectId);
+                return `
+                    <div class="question-item">
+                        <div class="question-header">
+                            <span><strong>${subject?.name || 'Unknown'}</strong> | ${q.examType?.toUpperCase() || 'ALL'}</span>
+                            <div>
+                                <button class="btn btn-secondary" style="padding: 5px 15px; font-size: 12px;" onclick="editQuestion('${q.id}')">Edit</button>
+                                <button class="btn btn-danger" style="padding: 5px 15px; font-size: 12px;" onclick="deleteQuestion('${q.id}')">Delete</button>
+                            </div>
+                        </div>
+                        <p>${q.text}</p>
+                        <div class="options-list">
+                            <p class="${q.correctAnswer === 'A' ? 'correct-answer' : ''}">A. ${q.options?.[0] || q.optionA}</p>
+                            <p class="${q.correctAnswer === 'B' ? 'correct-answer' : ''}">B. ${q.options?.[1] || q.optionB}</p>
+                            <p class="${q.correctAnswer === 'C' ? 'correct-answer' : ''}">C. ${q.options?.[2] || q.optionC}</p>
+                            <p class="${q.correctAnswer === 'D' ? 'correct-answer' : ''}">D. ${q.options?.[3] || q.optionD}</p>
+                        </div>
+                        ${q.explanation ? `<p style="margin-top: 10px; color: #666; font-size: 14px;"><strong>Explanation:</strong> ${q.explanation}</p>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            // Pagination
+            const totalPages = Math.ceil(questions.length / perPage);
+            let paginationHtml = '';
+            for (let i = 1; i <= totalPages; i++) {
+                paginationHtml += `<button class="btn ${i === currentPage ? '' : 'btn-secondary'}" style="padding: 5px 15px;" onclick="goToPage(${i})">${i}</button>`;
+            }
+            document.getElementById('pagination').innerHTML = paginationHtml;
+        }
+
+        window.goToPage = function(page) {
+            currentPage = page;
+            displayQuestions();
+        };
+
+        window.openModal = function(id = null) {
+            editingId = id;
+            document.getElementById('modalTitle').textContent = id ? 'Edit Question' : 'Add Question';
+            
+            if (id) {
+                const q = questions.find(q => q.id === id);
+                document.getElementById('qSubject').value = q.subjectId;
+                document.getElementById('qText').value = q.text;
+                document.getElementById('optA').value = q.options?.[0] || q.optionA;
+                document.getElementById('optB').value = q.options?.[1] || q.optionB;
+                document.getElementById('optC').value = q.options?.[2] || q.optionC;
+                document.getElementById('optD').value = q.options?.[3] || q.optionD;
+                document.getElementById('qCorrect').value = q.correctAnswer;
+                document.getElementById('qExplanation').value = q.explanation || '';
+            } else {
+                document.getElementById('questionForm').reset();
+            }
+            
+            document.getElementById('questionModal').classList.add('active');
+        };
+
+        window.closeModal = function() {
+            document.getElementById('questionModal').classList.remove('active');
+            editingId = null;
+        };
+
+        document.getElementById('questionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const subjectId = document.getElementById('qSubject').value;
+            const subject = subjects.find(s => s.id === subjectId);
+            
+            const data = {
+                subjectId: subjectId,
+                subjectName: subject?.name,
+                text: document.getElementById('qText').value,
+                options: [
+                    document.getElementById('optA').value,
+                    document.getElementById('optB').value,
+                    document.getElementById('optC').value,
+                    document.getElementById('optD').value
+                ],
+                correctAnswer: document.getElementById('qCorrect').value,
+                explanation: document.getElementById('qExplanation').value,
+                examType: subject?.examTypes?.[0] || 'jamb',
+                createdAt: new Date()
+            };
+
+            try {
+                if (editingId) {
+                    await updateDoc(doc(db, 'questions', editingId), data);
+                } else {
+                    await addDoc(collection(db, 'questions'), data);
+                }
+                closeModal();
+                loadQuestions();
+            } catch (error) {
+                alert('Error saving question: ' + error.message);
+            }
+        });
+
+        window.editQuestion = function(id) {
+            openModal(id);
+        };
+
+        window.deleteQuestion = async function(id) {
+            if (!confirm('Delete this question?')) return;
+            
+            try {
+                await deleteDoc(doc(db, 'questions', id));
+                loadQuestions();
+            } catch (error) {
+                alert('Error deleting question: ' + error.message);
+            }
+        };
+
+        window.logout = async function() {
+            await signOut(auth);
+            window.location.href = 'login.html';
+        };
+    </script>
+</body>
+</html>
+
