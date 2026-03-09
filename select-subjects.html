@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Subjects - CBT Simulator</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">🎓 CBT Simulator</div>
+        <div class="nav-links">
+            <a href="select-exam.html">← Back</a>
+            <a href="#" onclick="logout()">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card" style="text-align: center;">
+            <h2 id="examTitle">Select Subjects</h2>
+            <p id="examInfo" style="color: #666; margin-top: 10px;"></p>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-bottom: 20px;">Available Subjects</h3>
+            <div class="subject-grid" id="subjectGrid">
+                <div class="loading" style="display: block;">
+                    <div class="spinner"></div>
+                    <p>Loading subjects...</p>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="btn" id="startBtn" onclick="startExam()" disabled>
+                Start Exam
+            </button>
+            <p id="selectionMessage" style="color: #666; margin-top: 10px; font-size: 14px;"></p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from './js/firebase-config.js';
+        import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { collection, getDocs, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        let selectedExam = JSON.parse(localStorage.getItem('selectedExam'));
+        let selectedSubjects = [];
+        let subjects = [];
+        let englishSubject = null;
+
+        // Check auth and exam
+        onAuthStateChanged(auth, (user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            } else if (!selectedExam) {
+                window.location.href = 'select-exam.html';
+            } else {
+                document.getElementById('examTitle').textContent = `${selectedExam.name} - Select Subjects`;
+                document.getElementById('examInfo').textContent = 
+                    `Select ${selectedExam.subjectsPerQuiz} subject${selectedExam.subjectsPerQuiz > 1 ? 's' : ''}`;
+                loadSubjects();
+            }
+        });
+
+        async function loadSubjects() {
+            try {
+                const q = query(collection(db, 'subjects'), where('isActive', '==', true));
+                const snapshot = await getDocs(q);
+                
+                subjects = [];
+                snapshot.forEach((doc) => {
+                    const subject = { id: doc.id, ...doc.data() };
+                    if (subject.examTypes.includes(selectedExam.id === 'jamb' ? 'jamb' : 
+                        selectedExam.name.toLowerCase().includes('waec') ? 'waec' : 'neco')) {
+                        subjects.push(subject);
+                    }
+                });
+
+                // Find English
+                englishSubject = subjects.find(s => s.code === 'ENG');
+                
+                displaySubjects();
+            } catch (error) {
+                console.error('Error loading subjects:', error);
+            }
+        }
+
+        function displaySubjects() {
+            const grid = document.getElementById('subjectGrid');
+            grid.innerHTML = '';
+
+            subjects.forEach((subject) => {
+                const item = document.createElement('div');
+                item.className = 'subject-item';
+                item.onclick = () => toggleSubject(subject.id);
+                item.id = `subject-${subject.id}`;
+                
+                const isEnglish = subject.code === 'ENG';
+                
+                item.innerHTML = `
+                    <h4>${subject.name}</h4>
+                    <p>${subject.code}</p>
+                    ${isEnglish ? '<p style="font-size: 11px; margin-top: 5px;">(Compulsory for JAMB)</p>' : ''}
+                `;
+
+                // Auto-select English for JAMB
+                if (selectedExam.subjectsPerQuiz > 1 && isEnglish) {
+                    item.classList.add('selected', 'disabled');
+                    selectedSubjects.push(subject);
+                }
+
+                grid.appendChild(item);
+            });
+
+            updateSelectionMessage();
+        }
+
+        window.toggleSubject = function(subjectId) {
+            const subject = subjects.find(s => s.id === subjectId);
+            
+            // Don't allow deselecting English for JAMB
+            if (selectedExam.subjectsPerQuiz > 1 && subject.code === 'ENG') {
+                return;
+            }
+
+            const index = selectedSubjects.findIndex(s => s.id === subjectId);
+            const element = document.getElementById(`subject-${subjectId}`);
+
+            if (index > -1) {
+                selectedSubjects.splice(index, 1);
+                element.classList.remove('selected');
+            } else {
+                // Check if max reached
+                if (selectedSubjects.length >= selectedExam.subjectsPerQuiz) {
+                    alert(`You can only select ${selectedExam.subjectsPerQuiz} subject(s)`);
+                    return;
+                }
+                selectedSubjects.push(subject);
+                element.classList.add('selected');
+            }
+
+            updateSelectionMessage();
+        };
+
+        function updateSelectionMessage() {
+            const remaining = selectedExam.subjectsPerQuiz - selectedSubjects.length;
+            document.getElementById('selectionMessage').textContent = 
+                remaining === 0 ? 'Ready to start!' : `Select ${remaining} more subject${remaining > 1 ? 's' : ''}`;
+            document.getElementById('startBtn').disabled = remaining !== 0;
+        }
+
+        window.startExam = function() {
+            localStorage.setItem('selectedSubjects', JSON.stringify(selectedSubjects));
+            window.location.href = 'exam.html';
+        };
+
+        window.logout = async function() {
+            try {
+                await signOut(auth);
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        };
+    </script>
+</body>
+</html>
+
