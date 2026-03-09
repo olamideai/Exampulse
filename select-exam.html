@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Exam - CBT Simulator</title>
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">🎓 CBT Simulator</div>
+        <div class="nav-links">
+            <a href="#" onclick="logout()">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card" style="text-align: center;">
+            <h2 style="margin-bottom: 10px;">Select Exam Type</h2>
+            <p style="color: #666;">Choose which exam you want to practice</p>
+        </div>
+
+        <div class="grid" id="examGrid">
+            <div class="loading" style="display: block;">
+                <div class="spinner"></div>
+                <p>Loading exams...</p>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px;">
+            <button class="btn" id="continueBtn" onclick="continueToSubjects()" disabled>
+                Continue
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from './js/firebase-config.js';
+        import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        let selectedExam = null;
+        let exams = [];
+
+        // Check auth
+        onAuthStateChanged(auth, (user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            } else {
+                loadExams();
+            }
+        });
+
+        async function loadExams() {
+            try {
+                const snapshot = await getDocs(collection(db, 'exams'));
+                exams = [];
+                snapshot.forEach((doc) => {
+                    exams.push({ id: doc.id, ...doc.data() });
+                });
+
+                displayExams();
+            } catch (error) {
+                console.error('Error loading exams:', error);
+            }
+        }
+
+        function displayExams() {
+            const grid = document.getElementById('examGrid');
+            grid.innerHTML = '';
+
+            exams.forEach((exam) => {
+                const card = document.createElement('div');
+                card.className = 'exam-card';
+                card.onclick = () => selectExam(exam.id);
+                card.innerHTML = `
+                    <h3>${exam.name}</h3>
+                    <p>${exam.subjectsPerQuiz} Subject${exam.subjectsPerQuiz > 1 ? 's' : ''} per Quiz</p>
+                    <p>${exam.totalQuestions} Questions | ${exam.duration} Minutes</p>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        window.selectExam = function(examId) {
+            selectedExam = exams.find(e => e.id === examId);
+            
+            document.querySelectorAll('.exam-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            event.currentTarget.classList.add('selected');
+            
+            document.getElementById('continueBtn').disabled = false;
+        };
+
+        window.continueToSubjects = function() {
+            if (selectedExam) {
+                localStorage.setItem('selectedExam', JSON.stringify(selectedExam));
+                window.location.href = 'select-subjects.html';
+            }
+        };
+
+        window.logout = async function() {
+            try {
+                await signOut(auth);
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        };
+    </script>
+</body>
+</html>
+
