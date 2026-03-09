@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Results - CBT Simulator</title>
+    <link rel="stylesheet" href="css/main.css">
+    <style>
+        .results-header {
+            text-align: center;
+            padding: 40px;
+            background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%);
+            color: white;
+            border-radius: 15px;
+            margin-bottom: 30px;
+        }
+
+        .total-score {
+            font-size: 72px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+
+        .score-label {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+
+        .subject-results {
+            display: grid;
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .subject-result {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .subject-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .subject-name {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .subject-score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2e7d32;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #2e7d32;
+            border-radius: 5px;
+            transition: width 1s ease;
+        }
+
+        .progress-fill.low {
+            background: #d32f2f;
+        }
+
+        .progress-fill.medium {
+            background: #ff9800;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #2e7d32;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .actions {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 40px;
+            flex-wrap: wrap;
+        }
+
+        .pass-badge {
+            display: inline-block;
+            background: #4caf50;
+            color: white;
+            padding: 10px 30px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: 600;
+            margin-top: 15px;
+        }
+
+        .fail-badge {
+            background: #d32f2f;
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">🎓 CBT Simulator</div>
+        <div class="nav-links">
+            <a href="select-exam.html">New Exam</a>
+            <a href="#" onclick="logout()">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div id="resultsContainer">
+            <div class="loading" style="display: block;">
+                <div class="spinner"></div>
+                <p>Loading results...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auth, db } from './js/firebase-config.js';
+        import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+
+        onAuthStateChanged(auth, (user) => {
+            if (!user) {
+                window.location.href = 'index.html';
+            } else {
+                displayResults();
+            }
+        });
+
+        function displayResults() {
+            const results = JSON.parse(localStorage.getItem('examResults'));
+            
+            if (!results) {
+                window.location.href = 'select-exam.html';
+                return;
+            }
+
+            const container = document.getElementById('resultsContainer');
+            const totalPercentage = Math.round((results.totalScore / results.maxScore) * 100);
+            const passed = totalPercentage >= 50; // 50% pass mark
+
+            let subjectsHtml = '';
+            results.subjects.forEach((subject, index) => {
+                const fillClass = subject.percentage < 40 ? 'low' : subject.percentage < 60 ? 'medium' : '';
+                subjectsHtml += `
+                    <div class="subject-result">
+                        <div class="subject-header">
+                            <span class="subject-name">${subject.name}</span>
+                            <span class="subject-score">${subject.percentage}%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill ${fillClass}" style="width: ${subject.percentage}%"></div>
+                        </div>
+                        <p style="margin-top: 10px; color: #666; font-size: 14px;">
+                            ${subject.score} correct out of ${subject.total} questions
+                        </p>
+                    </div>
+                `;
+            });
+
+            const timeUsed = new Date(results.timeUsed * 1000).toISOString().substr(11, 8);
+
+            container.innerHTML = `
+                <div class="results-header">
+                    <h2>🎉 Exam Completed!</h2>
+                    <div class="total-score">${totalPercentage}%</div>
+                    <div class="score-label">Total Score: ${results.totalScore} / ${results.maxScore}</div>
+                    <span class="pass-badge ${passed ? '' : 'fail-badge'}">
+                        ${passed ? '✅ PASSED' : '❌ FAILED'}
+                    </span>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">${results.exam.name}</div>
+                        <div class="stat-label">Exam Type</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${results.subjects.length}</div>
+                        <div class="stat-label">Subjects</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${timeUsed}</div>
+                        <div class="stat-label">Time Used</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${new Date(results.completedAt).toLocaleDateString()}</div>
+                        <div class="stat-label">Date</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3 style="margin-bottom: 20px;">Subject Breakdown</h3>
+                    <div class="subject-results">
+                        ${subjectsHtml}
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <a href="select-exam.html" class="btn">Take Another Exam</a>
+                    <a href="index.html" class="btn btn-secondary">Back to Home</a>
+                </div>
+            `;
+        }
+
+        window.logout = async function() {
+            try {
+                await signOut(auth);
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        };
+    </script>
+</body>
+</html>
